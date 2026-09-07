@@ -8,7 +8,7 @@ import 'package:otzaria/plugins/services/plugin_network_fetch_service.dart';
 
 void main() {
   test('GET כברירת מחדל עם Accept כללי */*', () async {
-    late http.Request captured;
+    late http.BaseRequest captured;
     final service = PluginNetworkFetchService(
       client: MockClient((req) async {
         captured = req;
@@ -16,17 +16,19 @@ void main() {
       }),
     );
 
-    final result = await service.fetch(Uri.parse('https://api.example.com/x'));
+    final response = await service.fetchStream(
+      Uri.parse('https://api.example.com/x'),
+    );
 
     expect(captured.method, 'GET');
     expect(captured.headers['accept'], '*/*');
-    expect(result.status, 200);
-    expect(result.ok, isTrue);
-    expect(result.body, 'hello');
+    expect(response.status, 200);
+    expect(response.ok, isTrue);
+    expect(await response.body.join(), 'hello');
   });
 
   test('POST מעביר method, headers ו-body', () async {
-    late http.Request captured;
+    late http.BaseRequest captured;
     final service = PluginNetworkFetchService(
       client: MockClient((req) async {
         captured = req;
@@ -34,7 +36,7 @@ void main() {
       }),
     );
 
-    final result = await service.fetch(
+    final response = await service.fetchStream(
       Uri.parse('https://nakdan.dicta.org.il/api'),
       method: 'POST',
       headers: {'Content-Type': 'application/json;charset=UTF-8'},
@@ -43,13 +45,13 @@ void main() {
 
     expect(captured.method, 'POST');
     expect(captured.headers['content-type'], 'application/json;charset=UTF-8');
-    expect(captured.body, '{"task":"nakdan"}');
-    expect(result.ok, isTrue);
-    expect(result.body, '{"data":[]}');
+    expect((captured as http.Request).body, '{"task":"nakdan"}');
+    expect(response.ok, isTrue);
+    expect(await response.body.join(), '{"data":[]}');
   });
 
   test('headers מפורשים דורסים את ברירת המחדל של Accept', () async {
-    late http.Request captured;
+    late http.BaseRequest captured;
     final service = PluginNetworkFetchService(
       client: MockClient((req) async {
         captured = req;
@@ -57,7 +59,7 @@ void main() {
       }),
     );
 
-    await service.fetch(
+    await service.fetchStream(
       Uri.parse('https://api.example.com/x'),
       headers: {'Accept': 'application/json'},
     );
@@ -70,28 +72,13 @@ void main() {
       client: MockClient((req) async => http.Response('nope', 404)),
     );
 
-    final result = await service.fetch(Uri.parse('https://api.example.com/x'));
-
-    expect(result.status, 404);
-    expect(result.ok, isFalse);
-    expect(result.body, 'nope');
-  });
-
-  test('timeout מותאם מגביל גם את זמן ההמתנה לתשובה', () async {
-    final service = PluginNetworkFetchService(
-      client: MockClient((req) async {
-        await Future<void>.delayed(const Duration(milliseconds: 40));
-        return http.Response('late', 200);
-      }),
+    final response = await service.fetchStream(
+      Uri.parse('https://api.example.com/x'),
     );
 
-    await expectLater(
-      service.fetch(
-        Uri.parse('https://api.example.com/slow'),
-        timeout: const Duration(milliseconds: 5),
-      ),
-      throwsA(isA<TimeoutException>()),
-    );
+    expect(response.status, 404);
+    expect(response.ok, isFalse);
+    expect(await response.body.join(), 'nope');
   });
 
   test('fetchStream מזרים UTF-8 תקין גם כשהתו נחצה בין מקטעים', () async {

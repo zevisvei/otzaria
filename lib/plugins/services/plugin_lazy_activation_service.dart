@@ -8,9 +8,8 @@ import 'package:otzaria/plugins/services/plugin_runtime_dispatcher.dart';
 
 /// הפעלה עצלה של מופע רקע לתוסף עם תרומות עלייה (`contributes.startup`).
 ///
-/// במקום WebView שחי מהעלייה (המנגנון הישן של `app.run_on_startup`), המנוע
-/// של התוסף קם רק כשבאמת צריך אותו: לחיצה על פקד שנרשם דקלרטיבית, אירוע
-/// שהתוסף הצהיר עליו ב-activationEvents, או טריגר `app.startup` דחוי.
+/// המנוע של התוסף קם רק כשבאמת צריך אותו: לחיצה על פקד שנרשם דקלרטיבית,
+/// אירוע שהתוסף הצהיר עליו ב-activationEvents, או טריגר `app.startup` דחוי.
 /// אירועים שהגיעו לפני שהמופע סיים boot נשמרים בתור ונמסרים בסיומו.
 class PluginLazyActivationService {
   static final PluginLazyActivationService instance =
@@ -76,8 +75,7 @@ class PluginLazyActivationService {
   /// כדי שסנכרון חוזר (LoadPlugins) לא יפעיל את התוסף שוב.
   final Set<String> _startupFired = {};
 
-  /// תוספים שהמופע שלהם הוער עצל ולכן כפוף לכיבוי אחרי חוסר פעילות
-  /// (מופעי run_on_startup הישנים, שנטענים בעלייה, אינם כאן).
+  /// תוספים שהמופע שלהם הוער עצל ולכן כפוף לכיבוי אחרי חוסר פעילות.
   final Set<String> _idleTracked = {};
   final Map<String, Timer> _idleTimers = {};
   final Set<String> _keepAlive = {};
@@ -143,8 +141,8 @@ class PluginLazyActivationService {
   }
 
   /// כיבוי מיידי לבקשת התוסף (`plugin.backgroundDone`) — בלי להמתין לשעון
-  /// חוסר-הפעילות. חל רק על מופע שהוער עצל: מופעי העלייה הישנים ודף התוסף
-  /// אינם במעקב ולכן אינם מושפעים. מחזיר האם הבקשה התקבלה.
+  /// חוסר-הפעילות. חל רק על מופע רקע שבמעקב; דף התוסף אינו מושפע.
+  /// מחזיר האם הבקשה התקבלה.
   bool requestImmediateTeardown(String pluginId) {
     if (!_idleTracked.contains(pluginId)) return false;
     _idleTimers.remove(pluginId)?.cancel();

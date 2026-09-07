@@ -53,7 +53,7 @@ class PluginRuntimeDispatcher {
 
   /// כל מופעי הריצה החיים, לפי מפתח (pluginId, instanceId). תוסף יכול לרוץ
   /// בכמה מופעים במקביל: טאבים קדמיים (PluginTabPage) + מופע רקע
-  /// (PluginBackgroundHost) כשהוענקה ההרשאה `app.run_on_startup`.
+  /// (PluginBackgroundHost) שהוער עצל דרך `contributes.startup`.
   final Map<PluginInstanceKey, _PluginInstance> _instances = {};
 
   /// אינדקס לשאילתות ברמת התוסף. סדר ההכנסה נשמר — "האחרון שנרשם".
@@ -86,7 +86,7 @@ class PluginRuntimeDispatcher {
   // ── מחזור חיים של מופעים קדמיים (PluginTabPage) ──────────────────────────
   // משהים את ה-WebView של מופע שעזבו כדי לא לצרוך CPU/RAM ברקע. pause נייטיב =
   // TrySuspend ב-WebView2 (Windows) / onPause (Android) — מקפיא בלי reload.
-  // לא נוגעים במופע הרקע ('background') — תוספי run_on_startup אמורים לרוץ.
+  // לא נוגעים במופע הרקע ('background') — הוא הוער כדי לרוץ בלי דף נראה.
   //
   // קבוצה ולא מפתח יחיד: טאב מפוצל בעיון יכול להציג שני מופעים בו-זמנית.
   Set<PluginInstanceKey> _visibleInstanceKeys = const {};

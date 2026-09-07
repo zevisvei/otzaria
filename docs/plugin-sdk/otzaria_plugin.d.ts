@@ -363,8 +363,10 @@ export interface SearchOptionsCatalog {
 
 export interface NetworkFetchParams {
   url: string;
+  /** מומר לאותיות גדולות; אותיות בלבד. ברירת מחדל GET. */
   method?: string;
   headers?: Record<string, string>;
+  /** מחרוזת בלבד; מחרוזת ריקה אינה נשלחת. */
   body?: string;
   /** ברירת מחדל 30,000; מקסימום 120,000 מילישניות. */
   timeoutMs?: number;
@@ -1850,7 +1852,6 @@ export type OtzariaMethod =
   | 'database.describeSource'
   | 'database.query'
   | 'database.batchQuery'
-  | 'network.fetch'
   | 'network.fetchStream'
   | 'network.download'
   | 'fs.pickUserFile'

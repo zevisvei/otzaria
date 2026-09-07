@@ -132,7 +132,6 @@ class PluginBridgeHandler {
   // error.timeout אחרי שהדיווח כבר נשלח, וגורם לכפילות בניסיון חוזר.
   static bool hasOwnTimeout(String method) =>
       method == 'search.query' ||
-      method == 'network.fetch' ||
       method == 'network.fetchStream' ||
       method == 'network.download' ||
       method == 'fs.extractZip' ||
@@ -451,7 +450,6 @@ class PluginBridgeHandler {
     'database.batchQuery': 'database.read',
     // הרשאות הרשת (network.access / network.localhost) נבדקות באדפטר לפי
     // היעד, יחד עם רשימת ההיתר של המניפסט.
-    'network.fetch': noManifestPermission,
     'network.fetchStream': noManifestPermission,
     'network.download': noManifestPermission,
     // extractZip/deleteFile מגודרות בכך שהנתיב חייב להיות בתוך תיקייה

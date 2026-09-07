@@ -56,8 +56,34 @@ void main() {
     );
   }
 
+  Future<void> runAndVerify(StartupRecoveryCheck check) async {
+    await check.run(dbPath);
+    await check.verifyPending();
+  }
+
+  test(
+    'סימון ללא גיבוי — run מסתיים בלי quick_check; הסריקה רק ב-verifyPending',
+    () async {
+      writeMarker();
+      final check = buildCheck(quickCheckResult: true);
+      await check.run(dbPath);
+      expect(quickCheckRuns, 0);
+      expect(check.hasPendingVerification, isTrue);
+      expect(File('$dbPath.applying').existsSync(), isTrue);
+
+      await check.verifyPending();
+      expect(quickCheckRuns, 1);
+      expect(check.hasPendingVerification, isFalse);
+      expect(File('$dbPath.applying').existsSync(), isFalse);
+
+      // קריאה חוזרת אינה סורקת שוב.
+      await check.verifyPending();
+      expect(quickCheckRuns, 1);
+    },
+  );
+
   test('ללא סימון — אין quick_check ואין רישום', () async {
-    await buildCheck(quickCheckResult: true).run(dbPath);
+    await runAndVerify(buildCheck(quickCheckResult: true));
     expect(quickCheckRuns, 0);
     expect(loggedTitles, isEmpty);
     expect(prefs, isEmpty);
@@ -65,7 +91,7 @@ void main() {
 
   test('סימון + quick_check עובר → הסימון נמחק, בלי העדפה ובלי לוג', () async {
     writeMarker();
-    await buildCheck(quickCheckResult: true).run(dbPath);
+    await runAndVerify(buildCheck(quickCheckResult: true));
     expect(quickCheckRuns, 1);
     expect(File('$dbPath.applying').existsSync(), isFalse);
     expect(prefs, isEmpty);
@@ -76,14 +102,14 @@ void main() {
     writeMarker();
     const recovery = _UndeletableMarkerRecovery();
 
-    await buildCheck(quickCheckResult: true, recovery: recovery).run(dbPath);
+    await runAndVerify(buildCheck(quickCheckResult: true, recovery: recovery));
     expect(quickCheckRuns, 1);
     expect(File('$dbPath.applying').existsSync(), isTrue);
     expect(prefs[StartupRecoveryCheck.prefKey], startsWith('ok|'));
     expect(loggedTitles, ['Library update marker cleanup failed']);
 
     // "עלייה" שנייה עם אותו סימון: בלי סריקה חוזרת ובלי לוג נוסף.
-    await buildCheck(quickCheckResult: true, recovery: recovery).run(dbPath);
+    await runAndVerify(buildCheck(quickCheckResult: true, recovery: recovery));
     expect(quickCheckRuns, 1);
     expect(loggedTitles, hasLength(1));
   });
@@ -91,7 +117,7 @@ void main() {
   test('DB פגום — נסרק פעם אחת, נרשם לוג, ולא נסרק שוב', () async {
     writeMarker();
 
-    await buildCheck(quickCheckResult: false).run(dbPath);
+    await runAndVerify(buildCheck(quickCheckResult: false));
     expect(quickCheckRuns, 1);
     expect(File('$dbPath.applying').existsSync(), isTrue);
     expect(prefs[StartupRecoveryCheck.prefKey], startsWith('corrupt|'));
@@ -99,7 +125,7 @@ void main() {
       'Library DB failed quick_check after interrupted update',
     ]);
 
-    await buildCheck(quickCheckResult: false).run(dbPath);
+    await runAndVerify(buildCheck(quickCheckResult: false));
     expect(quickCheckRuns, 1);
     expect(loggedTitles, hasLength(1));
   });
@@ -107,7 +133,7 @@ void main() {
   test('סימון חדש (עדכון אחר) מפקיע תוצאה שמורה — הסריקה רצה שוב', () async {
     writeMarker();
     const recovery = _UndeletableMarkerRecovery();
-    await buildCheck(quickCheckResult: true, recovery: recovery).run(dbPath);
+    await runAndVerify(buildCheck(quickCheckResult: true, recovery: recovery));
     expect(quickCheckRuns, 1);
 
     // עדכון חדש כותב סימון עם תוכן אחר.
@@ -115,7 +141,7 @@ void main() {
       jsonEncode({'fromVersion': 7, 'toVersion': 8, 'timestamp': 't2'}),
       flush: true,
     );
-    await buildCheck(quickCheckResult: true, recovery: recovery).run(dbPath);
+    await runAndVerify(buildCheck(quickCheckResult: true, recovery: recovery));
     expect(quickCheckRuns, 2);
   });
 
@@ -123,7 +149,7 @@ void main() {
     writeMarker();
     File('$dbPath.backup').writeAsStringSync('fake-db');
 
-    await buildCheck(quickCheckResult: true).run(dbPath);
+    await runAndVerify(buildCheck(quickCheckResult: true));
     expect(quickCheckRuns, 0);
     expect(File('$dbPath.applying').existsSync(), isFalse);
     expect(File('$dbPath.backup').existsSync(), isFalse);

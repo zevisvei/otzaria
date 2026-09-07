@@ -114,7 +114,6 @@ const Map<String, String> apiCallToPermissionHint = {
 
   // network.* — הגישה נבדקת באדפטר לפי היעד; יעד localhost בלבד דורש
   // `network.localhost` במקום `network.access`.
-  'network.fetch': 'network.access',
   'network.fetchStream': 'network.access',
   'network.download': 'network.access',
 };
@@ -124,7 +123,6 @@ const Map<String, String> apiCallToPermissionHint = {
 const Set<String> apiCallsWithoutPermission = {
   'feedback.report',
   'feedback.hasReporterEmail',
-  'network.fetch',
   'network.fetchStream',
   'network.download',
   'fs.extractZip',
@@ -174,11 +172,8 @@ const pluginLibraryRefreshPermission = 'library.refresh';
 /// כי היא מפעילה את ה-WebView של תוסף שלישי, ולא רק מזיזה את המשתמש בין מסכים.
 const pluginOpenOtherPermission = 'plugin.open_other';
 
-/// הרשאה להפעלת מנוע התוסף ברקע ללא פתיחת הדף שלו.
-/// בתוסף דקלרטיבי ההפעלה נעשית רק בעקבות אירוע.
-// TODO(0.9.98): להסיר את מסלול הטעינה-בעלייה של תוספי רקע — ההרשאה נשארת
-// כשער להפעלה עצלה (contributes.startup); למחוק אז גם את סעיף "ריצת רקע —
-// מיושן" ומדריך המעבר ב-API_REFERENCE.md.
+/// הרשאה להפעלת מנוע התוסף ברקע ללא פתיחת הדף שלו — שער להפעלה העצלה
+/// (`contributes.startup`): המנוע קם רק בעקבות אירוע או לחיצה שהוצהרו.
 const pluginRunOnStartupPermission = 'app.run_on_startup';
 
 /// הרשאה לביטול הכיבוי האוטומטי של מנוע רקע שהופעל בעצלתיים.
@@ -246,7 +241,7 @@ const pluginValidPermissions = <String>[
   'app.open_url',
 
   /// הפעלת מנוע התוסף ברקע לפי אירוע, בלי לפתוח את דף התוסף.
-  /// ברירת מחדל: כבויה; לתוסף מדור קודם זהו שער טעינה בעלייה.
+  /// ברירת מחדל: כבויה.
   pluginRunOnStartupPermission,
 
   /// השארת מנוע רקע עצל פעיל מעבר לחלון חוסר הפעילות הרגיל.

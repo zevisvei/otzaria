@@ -55,10 +55,10 @@ import 'package:otzaria/data/constants/database_constants.dart';
 import 'package:otzaria/empty_library/bloc/empty_library_bloc.dart';
 import 'package:otzaria/library_update/bloc/library_update_bloc.dart';
 import 'package:otzaria/library_update/repository/library_update_repository.dart';
+import 'package:otzaria/library_update/services/streaming_patch_downloader.dart';
 import 'package:otzaria/library_update/services/companion_assets_service.dart';
 import 'package:otzaria/library_update/services/startup_recovery_check.dart';
 import 'package:seforim_library_updater/seforim_library_updater.dart';
-import 'package:zstandard/zstandard.dart';
 import 'package:otzaria/work_status/work_status_cubit.dart';
 import 'package:otzaria/plugins/bloc/plugin_system_bloc.dart';
 import 'package:otzaria/plugins/bloc/plugin_system_event.dart';
@@ -111,13 +111,11 @@ import 'package:otzaria/widgets/misc/app_cursors.dart';
 import 'package:otzaria/widgets/misc/restart_widget.dart';
 import 'package:otzaria/core/splash_screen.dart';
 import 'package:otzaria/plugins/services/plugin_crash_guard.dart';
-import 'package:otzaria/plugins/services/plugin_background_policy.dart';
 import 'package:otzaria/plugins/services/plugin_install_report_service.dart';
 import 'package:otzaria/plugins/services/plugin_packager_cli.dart';
 import 'package:otzaria/plugins/services/plugin_store_link_parser.dart';
 import 'package:otzaria/plugins/services/plugin_protocol_registration_service.dart';
 import 'package:otzaria/plugins/utils/plugin_dev_tools_mode.dart';
-import 'package:otzaria/plugins/view/webview_environment_holder.dart';
 import 'package:otzaria/core/sentry_event_filter.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
@@ -722,9 +720,10 @@ Future<void> _initializeProcessSingletons() async {
   }
 }
 
-/// משחזר עדכון ספרייה שנקטע (marker+backup) לפני פתיחת ה-DB.
-Future<void> _recoverInterruptedLibraryUpdate() {
-  return StartupRecoveryCheck(
+/// משחזר עדכון ספרייה שנקטע (marker+backup) לפני פתיחת ה-DB. אימות
+/// `quick_check` אחרי דלתא שנקטע (דקות על ספרייה מלאה) נדחה לאחרי החשיפה.
+Future<void> _recoverInterruptedLibraryUpdate() async {
+  final check = StartupRecoveryCheck(
     readPref: Settings.getValue<String>,
     writePref: (key, value) => Settings.setValue(key, value),
     logError: (title, message) => _appendUnhandledErrorToLocalLog(
@@ -732,7 +731,39 @@ Future<void> _recoverInterruptedLibraryUpdate() {
       error: message,
       details: const {'Phase': 'initialize', 'Component': 'Library recovery'},
     ),
-  ).run(DatabaseConstants.getDatabasePath());
+  );
+  await check.run(DatabaseConstants.getDatabasePath());
+  if (check.hasPendingVerification) {
+    final completer = _startupRecoveryVerification = Completer<void>();
+    unawaited(_runDeferredRecoveryVerification(check, completer));
+  }
+}
+
+Completer<void>? _startupRecoveryVerification;
+
+/// מסתיים כשה-DB אומת אחרי עדכון דלתא שנקטע (או מיד, כשלא נדרש אימות).
+/// עבודות שכותבות ל-seforim.db או מחליפות אותו — סנכרון רקע, עדכון ספרייה —
+/// ממתינות לו: ה-quick_check מחזיק את הקובץ פתוח ב-isolate, ובווינדוס
+/// החלפת קובץ פתוח נכשלת.
+Future<void> get startupRecoveryVerified =>
+    _startupRecoveryVerification?.future ?? Future.value();
+
+Future<void> _runDeferredRecoveryVerification(
+  StartupRecoveryCheck check,
+  Completer<void> completer,
+) async {
+  try {
+    await _mainWindowRevealedCompleter.future.timeout(
+      const Duration(seconds: 15),
+    );
+  } on TimeoutException {
+    // ממשיכים בכל זאת — כמו חימומי המטמון.
+  }
+  try {
+    await check.verifyPending();
+  } finally {
+    completer.complete();
+  }
 }
 
 /// seforim.db שהוזז לגיבוי זמני בעדכון ספרייה שנהרג באמצע חוזר לספרייה —
@@ -814,9 +845,6 @@ Future<void> _initializeRestartableRuntime() async {
   unawaited(_runDeferredProtocolRegistration());
   unawaited(_logJobObjectContainmentFailure());
   unawaited(_runDeferredDataRootWritabilityWarning());
-
-  // מסלול התאימות הישן זקוק ל-WebView מיד; החימום רץ ברקע ואינו מעכב bootstrap.
-  unawaited(_preWarmWebViewEnvironment());
 }
 
 /// כשקונטיינמנט ה-Job Object לא הוקם, תהליכי msedgewebview2.exe שורדים את
@@ -1016,38 +1044,6 @@ Future<void> _runDeferredCacheWarmups() async {
       }
     }
   }());
-}
-
-Future<void> _preWarmWebViewEnvironment() async {
-  // ⚠️ החימום נוגע בתיקיית ה-user-data המשותפת. חלון משני שפותח תוסף
-  // מאתחל את הסביבה בעצמו (`PluginTabPage` / `PluginBackgroundHost`).
-  if (kIsWeb || !Platform.isWindows || WindowRole.isSecondary) return;
-  try {
-    // תוסף דקלרטיבי נשאר עצל גם אם אושרה לו הפעלה ברקע.
-    final installed = await PluginRegistryRepository().getAllPlugins();
-    final hasStartupRunner = installed.any(usesLegacyStartupRunner);
-    if (!hasStartupRunner) {
-      if (kDebugMode) {
-        debugPrint('WebView2 pre-warm skipped: no startup plugins');
-      }
-      return;
-    }
-    // אם WebView2 Runtime אינו מותקן, אתחול הסביבה ייכשל ממילא. מדלגים כדי
-    // לא לזרוק חריגה מיותרת ולא להצמיח תהליכי Edge חלקיים.
-    if (!await WebViewEnvironmentHolder.isRuntimeAvailable()) {
-      if (kDebugMode) {
-        debugPrint('WebView2 pre-warm skipped: runtime not installed');
-      }
-      return;
-    }
-    await WebViewEnvironmentHolder.initialize();
-  } catch (error, stackTrace) {
-    _logNonFatalInitializationError(
-      'WebView2 environment pre-warm',
-      error,
-      stackTrace,
-    );
-  }
 }
 
 Future<void>? _processInitializationFuture;
@@ -1446,9 +1442,8 @@ class _AppBootstrapState extends State<AppBootstrap> {
                 discovery: LibraryUpdateDiscovery(
                   client: GithubLibraryReleaseClient(),
                 ),
-                downloader: PatchDownloader(
-                  decompress: (bytes) => Zstandard().decompress(bytes),
-                ),
+                // זורם לדיסק: patch גדול נפרס בלי לשבת ב-RAM (ראו את המחלקה).
+                downloader: StreamingPatchDownloader(),
               ),
               companionAssets: CompanionAssetsService(),
               isOfflineMode: () =>

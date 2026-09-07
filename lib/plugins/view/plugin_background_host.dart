@@ -28,7 +28,6 @@ import 'package:otzaria/plugins/bridge/plugin_bridge_adapter.dart';
 import 'package:otzaria/plugins/bridge/plugin_bridge_handler.dart';
 import 'package:otzaria/plugins/models/installed_plugin.dart';
 import 'package:otzaria/plugins/plugin_constants.dart';
-import 'package:otzaria/plugins/models/plugin_valid_permissions.dart';
 import 'package:otzaria/plugins/repository/plugin_registry_repository.dart';
 import 'package:otzaria/plugins/services/plugin_download_handler.dart';
 import 'package:otzaria/plugins/services/plugin_webview_permission_gate.dart';
@@ -144,18 +143,11 @@ String? pickOnDemandEvictionCandidate({
   return null;
 }
 
-/// host נסתר שמטעין תוספים ברקע עם עליית האפליקציה.
+/// host נסתר שמחזיק את מופעי הרקע של התוספים — WebView מוסתר (Offstage)
+/// שטעון מ-disk ורץ תחת ה-bridge הרגיל.
 ///
-/// לוקח מ-PluginSystemBloc את רשימת התוספים הפעילים, מסנן את אלה שקיבלו
-/// את הרשאת [pluginRunOnStartupPermission], ומחזיק עבור כל אחד מהם
-/// WebView מוסתר (Offstage) שטעון מ-disk וריצה תחת אותו bridge רגיל.
-///
-/// בנוסף משרת את המנגנון החדש (`contributes.startup`): מרים מופע רקע
-/// **לפי דרישה** דרך [PluginLazyActivationService] — רק כשלחיצה או אירוע
-/// שהתוסף הצהיר עליו באמת קרו, במקום מנוע שחי מהעלייה.
-///
-/// TODO(0.9.98): להסיר את מסלול app.run_on_startup (הטעינה בעלייה) — יישאר
-/// רק המסלול לפי-דרישה; למחוק אז גם את מדריך המעבר ב-API_REFERENCE.md.
+/// מופע קם **לפי דרישה** בלבד, דרך [PluginLazyActivationService]: כשלחיצה
+/// או אירוע שהתוסף הצהיר עליו ב-`contributes.startup` באמת קרו.
 ///
 /// ה-instance הזה רשום אצל ה-Dispatcher תחת `instanceId: 'background'`,
 /// כך שהוא חי במקביל ל-PluginTabPage רגיל אם המשתמש נכנס למסך "כלים".
@@ -167,37 +159,17 @@ class PluginBackgroundHost extends StatefulWidget {
 }
 
 class _PluginBackgroundHostState extends State<PluginBackgroundHost> {
-  final PluginRegistryRepository _registry = PluginRegistryRepository();
-
-  /// תוספים שהוטענו ברקע כרגע. שמירת מזהים שאינם משתנים תוך כדי build
-  /// היא הכרחית כדי שה-WebView לא ייהרס ויקום מחדש בכל rebuild.
+  /// המופעים החיים כרגע. שמירת מזהים שאינם משתנים תוך כדי build היא הכרחית
+  /// כדי שה-WebView לא ייהרס ויקום מחדש בכל rebuild.
   final Map<String, InstalledPlugin> _activeBackgroundPlugins = {};
-
-  /// מופעים שהורמו לפי דרישה (contributes.startup) — אינם כפופים לתנאי
-  /// הרשאת run_on_startup של מסלול העלייה, ולכן הסנכרון מדלג עליהם.
-  final Set<String> _onDemandPluginIds = {};
   final Map<String, int> _onDemandGenerations = {};
 
   /// הרשימה האחרונה מהבלוק — נדרשת להפעלה לפי דרישה בין סנכרונים.
   List<InstalledPlugin> _latestPlugins = const [];
 
-  /// תוספים שכבר טעננו בהם את ההרשאה מ-SQLite אך עוד לא הוחלט עליהם.
-  /// משמש כדי למנוע בקשות חוזרות מקבילות.
-  final Set<String> _pluginsBeingEvaluated = {};
-
-  /// הסנכרון אסינכרוני (בדיקת Runtime והרשאות ב-SQLite). התקנה/עדכון יכולים
-  /// להגיע בזמן שסנכרון קודם עדיין רץ. במקום לדלג על הרשימה החדשה, שומרים את
-  /// הרשימה העדכנית ומעבדים אותה מיד לאחר הסבב הנוכחי.
-  List<InstalledPlugin>? _pendingPlugins;
-  bool _syncInProgress = false;
-
   /// האם WebView2 Runtime זמין. ברגע שנמצא זמין הערך נשמר ולא נבדק שוב —
-  /// Runtime אינו "נעלם" בזמן ריצה. אך כל עוד הוא חסר, הבדיקה חוזרת בכל
-  /// סנכרון: כך אם המשתמש מתקין WebView2 בזמן שהאפליקציה פתוחה, הסנכרון
-  /// הבא (למשל RefreshPlugins מכפתור "בדוק שוב" בטאב) יחזיר את תוספי הרקע
-  /// לפעולה בלי צורך בהפעלה מחדש.
+  /// Runtime אינו "נעלם" בזמן ריצה; כל עוד הוא חסר, הבדיקה חוזרת בכל הפעלה.
   bool _runtimeAvailable = false;
-  bool _loggedRuntimeMissing = false;
 
   @override
   void initState() {
@@ -213,7 +185,7 @@ class _PluginBackgroundHostState extends State<PluginBackgroundHost> {
       if (!mounted) return;
       final state = context.read<PluginSystemBloc>().state;
       if (state is PluginSystemLoaded) {
-        _queueBackgroundSync(state.plugins);
+        _syncBackgroundPlugins(state.plugins);
       }
     });
   }
@@ -240,7 +212,7 @@ class _PluginBackgroundHostState extends State<PluginBackgroundHost> {
     return BlocListener<PluginSystemBloc, PluginSystemState>(
       listener: (context, state) {
         if (state is PluginSystemLoaded) {
-          _queueBackgroundSync(state.plugins);
+          _syncBackgroundPlugins(state.plugins);
         }
       },
       child: ExcludeFocus(
@@ -278,55 +250,15 @@ class _PluginBackgroundHostState extends State<PluginBackgroundHost> {
     );
   }
 
-  void _queueBackgroundSync(List<InstalledPlugin> plugins) {
+  /// המופעים עצמם קמים רק לפי דרישה; הסנכרון מהבלוק רק מסיר מופע של תוסף
+  /// שכובה או הוסר, ומרענן פרטים שהשתנו במופע חי.
+  void _syncBackgroundPlugins(List<InstalledPlugin> plugins) {
     _latestPlugins = List<InstalledPlugin>.of(plugins);
-    _pendingPlugins = List<InstalledPlugin>.of(plugins);
-    if (_syncInProgress) return;
-    unawaited(_drainBackgroundSyncQueue());
-  }
-
-  Future<void> _drainBackgroundSyncQueue() async {
-    _syncInProgress = true;
-    try {
-      while (mounted && _pendingPlugins != null) {
-        final plugins = _pendingPlugins!;
-        _pendingPlugins = null;
-        await _syncBackgroundPlugins(plugins);
-      }
-    } finally {
-      _syncInProgress = false;
-      // רשימה יכולה להגיע בדיוק בין תנאי ה-while ל-finally.
-      if (mounted && _pendingPlugins != null) {
-        _queueBackgroundSync(_pendingPlugins!);
-      }
-    }
-  }
-
-  Future<void> _syncBackgroundPlugins(List<InstalledPlugin> plugins) async {
-    // ללא WebView2 Runtime (Windows) בניית ה-WebView המוסתר נכשלת. מדלגים
-    // על כל תוספי הרקע — הם יוצגו עם מסך ההכוונה כשהמשתמש יפתח אותם ידנית.
-    // כל עוד ה-Runtime חסר בודקים מחדש בכל סנכרון, כדי שהתקנה תוך כדי ריצה
-    // תחזיר את תוספי הרקע בסנכרון הבא.
-    if (!_runtimeAvailable) {
-      _runtimeAvailable = await WebViewEnvironmentHolder.isRuntimeAvailable();
-      if (!mounted) return;
-      if (!_runtimeAvailable) {
-        if (!_loggedRuntimeMissing) {
-          _loggedRuntimeMissing = true;
-          debugPrint(
-            'PluginBackgroundHost: WebView2 Runtime missing — '
-            'skipping background plugins',
-          );
-        }
-        return;
-      }
-    }
 
     final enabledById = {
       for (final p in plugins.where((p) => p.enabled)) p.pluginId: p,
     };
 
-    // הסרת תוספים שכבר לא מופעלים או הוסרו
     final toRemove = _activeBackgroundPlugins.keys
         .where((id) => !enabledById.containsKey(id))
         .toList(growable: false);
@@ -334,66 +266,13 @@ class _PluginBackgroundHostState extends State<PluginBackgroundHost> {
       setState(() {
         for (final id in toRemove) {
           _activeBackgroundPlugins.remove(id);
-          _onDemandPluginIds.remove(id);
+          _onDemandGenerations.remove(id);
         }
       });
     }
 
-    // עבור כל תוסף enabled — בדוק האם ההרשאה ל-startup הוענקה
     for (final plugin in enabledById.values) {
-      // מופע לפי-דרישה (contributes.startup) אינו כפוף למסלול run_on_startup;
-      // רק מרעננים את פרטי התוסף אם השתנו.
-      if (_onDemandPluginIds.contains(plugin.pluginId)) {
-        _refreshActivePluginDetails(plugin);
-        continue;
-      }
-      // תוסף שהצהיר contributes.startup עבר למנגנון החדש — המנוע שלו קם
-      // עצל בלבד (לחיצה/אירוע/app.startup), לא במסלול הטעינה-בעלייה הישן.
-      final startup = plugin.manifest.startup;
-      if (startup != null && !startup.isEmpty) {
-        if (_activeBackgroundPlugins.containsKey(plugin.pluginId)) {
-          setState(() {
-            _activeBackgroundPlugins.remove(plugin.pluginId);
-          });
-        }
-        continue;
-      }
-      // לא שולחים לרקע תוסף שלא הצהיר על ההרשאה ב-manifest
-      if (!plugin.manifest.permissions.contains(pluginRunOnStartupPermission)) {
-        if (_activeBackgroundPlugins.containsKey(plugin.pluginId)) {
-          setState(() {
-            _activeBackgroundPlugins.remove(plugin.pluginId);
-          });
-        }
-        continue;
-      }
-
-      if (_pluginsBeingEvaluated.contains(plugin.pluginId)) continue;
-      _pluginsBeingEvaluated.add(plugin.pluginId);
-      try {
-        final granted = await _registry.getPermission(
-          plugin.pluginId,
-          pluginRunOnStartupPermission,
-        );
-        if (!mounted) return;
-        final shouldRun = granted == true;
-        final isRunning = _activeBackgroundPlugins.containsKey(plugin.pluginId);
-        if (shouldRun && !isRunning) {
-          if (!await _ensureWebViewEnvironment()) return;
-          if (!mounted) return;
-          setState(() {
-            _activeBackgroundPlugins[plugin.pluginId] = plugin;
-          });
-        } else if (!shouldRun && isRunning) {
-          setState(() {
-            _activeBackgroundPlugins.remove(plugin.pluginId);
-          });
-        } else if (shouldRun && isRunning) {
-          _refreshActivePluginDetails(plugin);
-        }
-      } finally {
-        _pluginsBeingEvaluated.remove(plugin.pluginId);
-      }
+      _refreshActivePluginDetails(plugin);
     }
   }
 
@@ -462,11 +341,9 @@ class _PluginBackgroundHostState extends State<PluginBackgroundHost> {
     final victim = _onDemandEvictionCandidate();
     setState(() {
       if (victim != null) {
-        _onDemandPluginIds.remove(victim);
         _onDemandGenerations.remove(victim);
         _activeBackgroundPlugins.remove(victim);
       }
-      _onDemandPluginIds.add(pluginId);
       _onDemandGenerations[pluginId] = activationGeneration;
       _activeBackgroundPlugins[pluginId] = plugin!;
     });
@@ -476,7 +353,7 @@ class _PluginBackgroundHostState extends State<PluginBackgroundHost> {
   /// ההפעלה) שאינו keepAlive ואינו באמצע boot, לפינוי. הטריגר הבא יעיר אותו
   /// מחדש. פינוי דרך הסרה מ-Stack → dispose של ה-runner → ניקוי בשירות העצל.
   String? _onDemandEvictionCandidate() => pickOnDemandEvictionCandidate(
-    onDemandIds: _onDemandPluginIds,
+    onDemandIds: _activeBackgroundPlugins.keys,
     isKeepAlive: (id) =>
         _activeBackgroundPlugins[id]?.manifest.startup?.keepAlive == true,
   );
@@ -484,9 +361,8 @@ class _PluginBackgroundHostState extends State<PluginBackgroundHost> {
   /// מכבה מופע שהוער עצל ולא הראה פעילות — משחרר את תהליכי ה-WebView2.
   /// הטריגר הבא (לחיצה/אירוע) יעיר אותו מחדש בלי לאבד דבר.
   void _deactivateOnDemand(String pluginId) {
-    if (!mounted || !_onDemandPluginIds.contains(pluginId)) return;
+    if (!mounted || !_activeBackgroundPlugins.containsKey(pluginId)) return;
     setState(() {
-      _onDemandPluginIds.remove(pluginId);
       _onDemandGenerations.remove(pluginId);
       _activeBackgroundPlugins.remove(pluginId);
     });

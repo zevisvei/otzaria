@@ -208,14 +208,13 @@ void main() {
         files: {
           'index.html': '<html lang="he" dir="rtl"></html>',
           'app.js':
-              "Otzaria.call('network.fetch', {url: 'x'});"
               "Otzaria.call('network.fetchStream', {url: 'x'});"
               "Otzaria.call('network.download', {url: 'y'});",
         },
       );
       // לא מסומנים כ-API לא מוכר, ואין אזהרת הרשאה חסרה (היא הוצהרה).
       expect(
-        report.warnings.any((w) => w.contains('network.fetch')),
+        report.warnings.any((w) => w.contains('network.fetchStream')),
         isFalse,
       );
       expect(
@@ -224,7 +223,7 @@ void main() {
       );
     });
 
-    test('network.localhost מספיקה ל-fetch ול-fetchStream', () {
+    test('network.localhost מספיקה ל-fetchStream', () {
       final report = _runOn(
         tempDir,
         manifestOverride: _baseManifest(
@@ -237,15 +236,8 @@ void main() {
         files: {
           'index.html': '<html lang="he" dir="rtl"></html>',
           'app.js':
-              "Otzaria.call('network.fetch', {url: 'http://127.0.0.1:11434/api/tags'});"
               "Otzaria.call('network.fetchStream', {url: 'http://127.0.0.1:11434/api/tags'});",
         },
-      );
-      expect(
-        report.warnings.any(
-          (w) => w.contains('network.fetch') && w.contains('network.access'),
-        ),
-        isFalse,
       );
       expect(
         report.warnings.any(

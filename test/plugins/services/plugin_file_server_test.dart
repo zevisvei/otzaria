@@ -104,13 +104,13 @@ void main() {
     await response.drain();
   });
 
-  test('URL בפורמט הישן /f/<token> עדיין מוגש (תאימות לגרסה אחת)', () async {
-    final file = await writeFile('doc.txt', 'legacy');
+  test('URL בלי מזהה תוסף (/f/<token>) נדחה — אין עקיפה של הבידוד', () async {
+    final file = await writeFile('doc.txt', 'x');
     final reg = await server.register(pluginId: 'p1', canonicalPath: file.path);
 
     final response = await get('${server.origin}/f/${reg.token}');
-    expect(response.statusCode, 200);
-    expect(await response.transform(utf8.decoder).join(), 'legacy');
+    expect(response.statusCode, 404);
+    await response.drain();
   });
 
   test('נתיב עם מספר סגמנטים חריג מחזיר 404', () async {
@@ -130,8 +130,8 @@ void main() {
       expect(PluginFileServer.isUriForPlugin(uri('/f/pB/tok'), 'pA'), isFalse);
     });
 
-    test('פורמט ישן (2 סגמנטים) מאושר, נתיב אחר נדחה', () {
-      expect(PluginFileServer.isUriForPlugin(uri('/f/tok'), 'pA'), isTrue);
+    test('נתיב בלי מזהה תוסף או נתיב אחר נדחים', () {
+      expect(PluginFileServer.isUriForPlugin(uri('/f/tok'), 'pA'), isFalse);
       expect(PluginFileServer.isUriForPlugin(uri('/other/x'), 'pA'), isFalse);
       expect(
         PluginFileServer.isUriForPlugin(uri('/f/pA/x/tok'), 'pA'),

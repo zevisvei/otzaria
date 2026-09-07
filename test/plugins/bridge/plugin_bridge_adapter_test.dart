@@ -2089,12 +2089,18 @@ Future<void> main() async {
     });
 
     test(
-      'network.fetch חוסם גם URL מובנה אם המניפסט של התוסף לא הצהיר עליו',
+      'network.fetchStream חוסם גם URL מובנה אם המניפסט של התוסף לא הצהיר עליו',
       () async {
         await expectLater(
-          () => adapter.execute('network', 'fetch', const {
-            'url': 'https://nakdan.dicta.org.il/api',
-          }),
+          () => adapter.execute(
+            'network',
+            'fetchStream',
+            const {
+              'url': 'https://nakdan.dicta.org.il/api',
+              '__streamId': 'network_perm_1',
+            },
+            eventSink: (_, _) async {},
+          ),
           throwsA(
             isA<Exception>().having(
               (e) => e.toString(),
@@ -2107,7 +2113,7 @@ Future<void> main() async {
     );
 
     test(
-      'network.fetch ל-localhost נחסם כשיש רק network.access (לא localhost)',
+      'network.fetchStream ל-localhost נחסם כשיש רק network.access (לא localhost)',
       () async {
         pluginRegistryRepository.permissionGrants = const {
           'network.access': true,
@@ -2124,9 +2130,15 @@ Future<void> main() async {
         );
 
         await expectLater(
-          () => loopbackAdapter.execute('network', 'fetch', const {
-            'url': 'http://127.0.0.1:11434/api/tags',
-          }),
+          () => loopbackAdapter.execute(
+            'network',
+            'fetchStream',
+            const {
+              'url': 'http://127.0.0.1:11434/api/tags',
+              '__streamId': 'network_perm_2',
+            },
+            eventSink: (_, _) async {},
+          ),
           throwsA(
             isA<Exception>().having(
               (e) => e.toString(),
@@ -2138,37 +2150,46 @@ Future<void> main() async {
       },
     );
 
-    test('network.fetch לאינטרנט נחסם כשיש רק network.localhost', () async {
-      pluginRegistryRepository.permissionGrants = const {
-        'network.access': false,
-        'network.localhost': true,
-      };
-      final internetAdapter = PluginBridgeAdapter(
-        _buildInstalledPlugin(
-          permissions: const ['network.localhost'],
-          networkEnabled: true,
-          networkAllowlist: const ['https://nakdan.dicta.org.il/api'],
-        ),
-        dependencies: _buildNetworkDeps(),
-        pluginRepository: pluginRegistryRepository,
-      );
-
-      await expectLater(
-        () => internetAdapter.execute('network', 'fetch', const {
-          'url': 'https://nakdan.dicta.org.il/api',
-        }),
-        throwsA(
-          isA<Exception>().having(
-            (e) => e.toString(),
-            'message',
-            contains('error.permission_denied'),
+    test(
+      'network.fetchStream לאינטרנט נחסם כשיש רק network.localhost',
+      () async {
+        pluginRegistryRepository.permissionGrants = const {
+          'network.access': false,
+          'network.localhost': true,
+        };
+        final internetAdapter = PluginBridgeAdapter(
+          _buildInstalledPlugin(
+            permissions: const ['network.localhost'],
+            networkEnabled: true,
+            networkAllowlist: const ['https://nakdan.dicta.org.il/api'],
           ),
-        ),
-      );
-    });
+          dependencies: _buildNetworkDeps(),
+          pluginRepository: pluginRegistryRepository,
+        );
+
+        await expectLater(
+          () => internetAdapter.execute(
+            'network',
+            'fetchStream',
+            const {
+              'url': 'https://nakdan.dicta.org.il/api',
+              '__streamId': 'network_perm_3',
+            },
+            eventSink: (_, _) async {},
+          ),
+          throwsA(
+            isA<Exception>().having(
+              (e) => e.toString(),
+              'message',
+              contains('error.permission_denied'),
+            ),
+          ),
+        );
+      },
+    );
 
     test(
-      'network.fetch חסום כשהמניפסט כיבה network.enabled גם אם יש grant ו-allowlist',
+      'network.fetchStream חסום כשהמניפסט כיבה network.enabled גם אם יש grant ו-allowlist',
       () async {
         final disabledAdapter = PluginBridgeAdapter(
           _buildInstalledPlugin(
@@ -2198,9 +2219,15 @@ Future<void> main() async {
         );
 
         await expectLater(
-          () => disabledAdapter.execute('network', 'fetch', const {
-            'url': 'https://nakdan.dicta.org.il/api',
-          }),
+          () => disabledAdapter.execute(
+            'network',
+            'fetchStream',
+            const {
+              'url': 'https://nakdan.dicta.org.il/api',
+              '__streamId': 'network_perm_4',
+            },
+            eventSink: (_, _) async {},
+          ),
           throwsA(
             isA<Exception>().having(
               (e) => e.toString(),
@@ -2213,7 +2240,7 @@ Future<void> main() async {
     );
   });
 
-  group('PluginBridgeAdapter.network.fetch (HTTP contract)', () {
+  group('PluginBridgeAdapter.network.fetchStream (HTTP contract)', () {
     late _StubPluginRegistryRepository pluginRegistryRepository;
 
     PluginBridgeAdapter buildAdapter(PluginNetworkFetchService fetchService) {
@@ -2250,8 +2277,8 @@ Future<void> main() async {
         ..permissionGrant = true;
     });
 
-    test('POST מעביר method/headers/body ומחזיר {status, ok, body}', () async {
-      late http.Request captured;
+    test('POST מעביר method/headers/body ומזרים את הגוף', () async {
+      late http.BaseRequest captured;
       final fetchService = PluginNetworkFetchService(
         client: MockClient((req) async {
           captured = req;
@@ -2259,25 +2286,36 @@ Future<void> main() async {
         }),
       );
       final adapter = buildAdapter(fetchService);
+      final chunks = <Map<String, dynamic>>[];
 
-      final result =
-          await adapter.execute('network', 'fetch', const {
-                'url': 'https://nakdan.dicta.org.il/api',
-                'method': 'POST',
-                'headers': {'Content-Type': 'application/json;charset=UTF-8'},
-                'body': '{"task":"nakdan"}',
-              })
-              as Map<String, dynamic>;
+      await adapter.execute(
+        'network',
+        'fetchStream',
+        const {
+          'url': 'https://nakdan.dicta.org.il/api',
+          'method': 'POST',
+          'headers': {'Content-Type': 'application/json;charset=UTF-8'},
+          'body': '{"task":"nakdan"}',
+          '__streamId': 'network_contract_post',
+        },
+        eventSink: (_, event) async =>
+            chunks.add(event['chunk'] as Map<String, dynamic>),
+      );
 
       expect(captured.method, 'POST');
-      expect(captured.body, '{"task":"nakdan"}');
       expect(
         captured.headers['content-type'],
         'application/json;charset=UTF-8',
       );
-      expect(result['status'], 200);
-      expect(result['ok'], isTrue);
-      expect(result['body'], '{"data":[]}');
+      expect((captured as http.Request).body, '{"task":"nakdan"}');
+      expect(chunks.first['type'], 'response');
+      expect(chunks.first['status'], 200);
+      expect(chunks.first['ok'], isTrue);
+      expect(
+        chunks.where((c) => c['type'] == 'data').map((c) => c['body']).join(),
+        '{"data":[]}',
+      );
+      adapter.dispose();
     });
 
     test('סטטוס שאינו 2xx מוחזר עם ok=false', () async {
@@ -2285,15 +2323,22 @@ Future<void> main() async {
         client: MockClient((req) async => http.Response('err', 500)),
       );
       final adapter = buildAdapter(fetchService);
+      final chunks = <Map<String, dynamic>>[];
 
-      final result =
-          await adapter.execute('network', 'fetch', const {
-                'url': 'https://nakdan.dicta.org.il/api',
-              })
-              as Map<String, dynamic>;
+      await adapter.execute(
+        'network',
+        'fetchStream',
+        const {
+          'url': 'https://nakdan.dicta.org.il/api',
+          '__streamId': 'network_contract_500',
+        },
+        eventSink: (_, event) async =>
+            chunks.add(event['chunk'] as Map<String, dynamic>),
+      );
 
-      expect(result['status'], 500);
-      expect(result['ok'], isFalse);
+      expect(chunks.first['status'], 500);
+      expect(chunks.first['ok'], isFalse);
+      adapter.dispose();
     });
 
     test('method לא תקין נדחה לפני ביצוע הבקשה', () async {
@@ -2307,15 +2352,54 @@ Future<void> main() async {
       final adapter = buildAdapter(fetchService);
 
       await expectLater(
-        () => adapter.execute('network', 'fetch', const {
-          'url': 'https://nakdan.dicta.org.il/api',
-          'method': 'POST DELETE',
-        }),
+        () => adapter.execute(
+          'network',
+          'fetchStream',
+          const {
+            'url': 'https://nakdan.dicta.org.il/api',
+            'method': 'POST DELETE',
+            '__streamId': 'network_contract_method',
+          },
+          eventSink: (_, _) async {},
+        ),
         throwsA(
           isA<Exception>().having(
             (e) => e.toString(),
             'message',
             contains('invalid method'),
+          ),
+        ),
+      );
+      expect(hit, isFalse);
+    });
+
+    test('body שאינו מחרוזת נדחה ב-invalid_params לפני ביצוע הבקשה', () async {
+      var hit = false;
+      final fetchService = PluginNetworkFetchService(
+        client: MockClient((req) async {
+          hit = true;
+          return http.Response('', 200);
+        }),
+      );
+      final adapter = buildAdapter(fetchService);
+
+      await expectLater(
+        () => adapter.execute(
+          'network',
+          'fetchStream',
+          const {
+            'url': 'https://nakdan.dicta.org.il/api',
+            'method': 'POST',
+            'body': {'task': 'nakdan'},
+            '__streamId': 'network_contract_body_type',
+          },
+          eventSink: (_, _) async {},
+        ),
+        throwsA(
+          isA<Exception>().having(
+            (e) => e.toString(),
+            'message',
+            contains('error.invalid_params: body'),
           ),
         ),
       );
@@ -2333,10 +2417,16 @@ Future<void> main() async {
       final adapter = buildAdapter(fetchService);
 
       await expectLater(
-        () => adapter.execute('network', 'fetch', const {
-          'url': 'https://nakdan.dicta.org.il/api',
-          'timeoutMs': 120001,
-        }),
+        () => adapter.execute(
+          'network',
+          'fetchStream',
+          const {
+            'url': 'https://nakdan.dicta.org.il/api',
+            'timeoutMs': 120001,
+            '__streamId': 'network_contract_timeout',
+          },
+          eventSink: (_, _) async {},
+        ),
         throwsA(
           isA<Exception>().having(
             (e) => e.toString(),

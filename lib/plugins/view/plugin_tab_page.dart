@@ -682,8 +682,7 @@ class _PluginTabPageState extends State<PluginTabPage> {
               onRetry: () {
                 if (!mounted) return;
                 // מרעננים גם את מערכת התוספים: אם WebView2 הותקן בינתיים,
-                // RefreshPlugins יגרום לסנכרון מחדש של ה-background host כך
-                // שתוספי run_on_startup יחזרו לרוץ — בלי הפעלה מחדש.
+                // הסנכרון מחדש מאפשר למופעי הרקע העצלים לקום בלי הפעלה מחדש.
                 _pluginSystemBloc.add(RefreshPlugins());
                 setState(() => _prereqFuture = null);
               },
@@ -1337,9 +1336,9 @@ class _PluginTabPageState extends State<PluginTabPage> {
 
   static bool get _needsWebViewPrerequisites {
     if (kIsWeb) return false;
-    // סביבה קיימת (pre-warm ב-main) הופכת את הבדיקה למיותרת, וה-FutureBuilder
-    // היה עולה פריים ריק שחושף את מסך הכלים מאחורי התוסף. נבדק כאן ולא בדגל
-    // סטטי, כדי ש-restart בתוך התהליך (שמאפס את הסביבה) יאתחל אותה מחדש.
+    // סביבה שכבר אותחלה (מופע רקע או טאב קודם) מייתרת את הבדיקה — ה-FutureBuilder
+    // היה עולה פריים ריק שחושף את מסך הכלים. נבדק כאן ולא בדגל סטטי, כדי
+    // ש-restart בתוך התהליך (שמאפס את הסביבה) יאתחל אותה מחדש.
     if (Platform.isWindows && WebViewEnvironmentHolder.environment != null) {
       return false;
     }

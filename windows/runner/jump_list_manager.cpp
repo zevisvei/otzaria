@@ -8,9 +8,37 @@
 #include <shobjidl.h>
 #include <wrl/client.h>
 
+#include <mutex>
+#include <optional>
+#include <thread>
+
 namespace {
 
 using Microsoft::WRL::ComPtr;
+
+std::mutex g_async_mutex;
+std::optional<std::vector<std::string>> g_pending_titles;
+bool g_worker_running = false;
+
+void RunPendingUpdates() {
+  for (;;) {
+    std::vector<std::string> titles;
+    {
+      std::lock_guard<std::mutex> lock(g_async_mutex);
+      if (!g_pending_titles.has_value()) {
+        g_worker_running = false;
+        return;
+      }
+      titles = std::move(*g_pending_titles);
+      g_pending_titles.reset();
+    }
+    const HRESULT hr = ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (SUCCEEDED(hr)) {
+      jump_list::UpdateOpenTabs(titles);
+      ::CoUninitialize();
+    }
+  }
+}
 
 // כותרת הקטגוריה ב-Jump List (מתחת ל"משימות").
 const wchar_t kCategoryTitle[] = L"טאבים פתוחים";
@@ -149,4 +177,20 @@ bool jump_list::UpdateOpenTabs(const std::vector<std::string>& titles_utf8) {
   }
 
   return SUCCEEDED(destination_list->CommitList());
+}
+
+void jump_list::UpdateOpenTabsAsync(std::vector<std::string> titles_utf8) {
+  std::lock_guard<std::mutex> lock(g_async_mutex);
+  g_pending_titles = std::move(titles_utf8);
+  if (g_worker_running) {
+    return;
+  }
+  g_worker_running = true;
+  try {
+    std::thread(RunPendingUpdates).detach();
+  } catch (const std::exception&) {
+    // בלי thread ה-Jump List נשאר ישן; זה עדיף על עצירת ה-UI thread.
+    g_worker_running = false;
+    g_pending_titles.reset();
+  }
 }

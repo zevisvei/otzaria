@@ -16,6 +16,7 @@ import 'package:otzaria/plugins/models/plugin_startup_contributions.dart';
 import 'package:otzaria/plugins/models/plugin_valid_permissions.dart';
 import 'package:otzaria/plugins/repository/plugin_registry_repository.dart';
 import 'package:otzaria/plugins/services/plugin_installer_service.dart';
+import 'package:otzaria/plugins/services/plugin_lazy_activation_service.dart';
 import 'package:otzaria/plugins/view/plugin_background_host.dart';
 import 'package:otzaria/plugins/view/webview_environment_holder.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -91,8 +92,6 @@ InstalledPlugin _plugin({
     entrypoint: entrypointPath,
     minAppVersion: '0.0.0',
     sdkVersion: '1.0.0',
-    // ברירת מחדל: ללא app.run_on_startup, מונע קריאות SQLite
-    // ב-_syncBackgroundPlugins
     permissions: permissions,
     networkEnabled: false,
     networkAllowlist: const [],
@@ -306,50 +305,10 @@ void main() {
     });
   });
 
-  // ── WebView2 Runtime gate ──────────────────────────────────────────────────
-  // כש-WebView2 Runtime חסר, ה-host לא רשאי לבנות WebView מוסתר ברקע (זה
-  // נכשל native). ה-gate מדלג על כל תוספי הרקע לפני כל גישה ל-DB/WebView.
-
-  group('gate חוסר WebView2 Runtime', () {
-    tearDown(
-      () => WebViewEnvironmentHolder.debugOverrideRuntimeAvailable(null),
-    );
-
-    testWidgets(
-      'override(false) — תוסף עם run_on_startup לא בונה WebView ברקע',
-      (
-        tester,
-      ) async {
-        WebViewEnvironmentHolder.debugOverrideRuntimeAvailable(false);
-        bloc.testEmit(
-          PluginSystemLoaded([
-            _plugin(permissions: const [pluginRunOnStartupPermission]),
-          ]),
-        );
-
-        await tester.pumpWidget(
-          MaterialApp(
-            home: BlocProvider<PluginSystemBloc>.value(
-              value: bloc,
-              child: const Scaffold(body: PluginBackgroundHost()),
-            ),
-          ),
-        );
-        await tester.pumpAndSettle();
-
-        // ה-gate חסם את כל המסלול לפני בניית WebView — אין InAppWebView,
-        // וה-host נטען ללא קריסה.
-        expect(find.byType(PluginBackgroundHost), findsOneWidget);
-        expect(find.byType(InAppWebView), findsNothing);
-      },
-    );
-  });
-
   // ── אתחול סביבת WebView2 — מתי הוא נקרא ────────────────────────────────────
-  // ה-host קורא ל-initialize רק כשהוא באמת עומד להריץ תוסף רקע: האתחול מצמיח
-  // 5-7 תהליכי Edge (~100MB). מנגד, בלי אתחול WebView2 כותב לתיקיית ברירת
-  // מחדל ליד ה-EXE ונכשל בהתקנת Program Files.
-  // ההרשאה נקראת מ-SQLite אמיתי, ולכן הקבוצה מרימה Settings + DB זמניים.
+  // מופע רקע קם רק לפי דרישה (contributes.startup), ולכן בעליית האפליקציה
+  // ה-host לעולם אינו מאתחל את הסביבה: האתחול מצמיח 5-7 תהליכי Edge (~100MB).
+  // ההרשאה נשמרת ב-SQLite אמיתי, ולכן הקבוצה מרימה Settings + DB זמניים.
 
   group('אתחול סביבת WebView2', () {
     late Directory tempDir;
@@ -444,26 +403,106 @@ void main() {
       expect(find.byType(InAppWebView), findsNothing);
     });
 
-    testWidgets('כשל באתחול — לא נבנה WebView ברקע', (tester) async {
-      WebViewEnvironmentHolder.debugOverrideInitialize(() async {
-        initializeCalls++;
-        throw StateError('init failed');
-      });
+    testWidgets(
+      'run_on_startup מאושרת בלי contributes.startup — אין מופע רקע',
+      (
+        tester,
+      ) async {
+        final plugin = _plugin(
+          permissions: const [pluginRunOnStartupPermission],
+        );
+        await PluginRegistryRepository().setPermission(
+          plugin.pluginId,
+          pluginRunOnStartupPermission,
+          true,
+        );
+
+        bloc.testEmit(PluginSystemLoaded([plugin]));
+        await pumpHost(tester);
+
+        expect(initializeCalls, 0);
+        expect(find.byType(InAppWebView), findsNothing);
+      },
+    );
+    testWidgets(
+      'הערה עצלה מאתחלת את הסביבה בעצמה — כשל באתחול לא בונה WebView',
+      (
+        tester,
+      ) async {
+        WebViewEnvironmentHolder.debugOverrideInitialize(() async {
+          initializeCalls++;
+          throw StateError('init failed');
+        });
+        final plugin = _plugin(
+          permissions: const [pluginRunOnStartupPermission],
+          startup: const PluginStartupContributions(
+            activationEvents: ['notes.changed'],
+          ),
+        );
+        await PluginRegistryRepository().setPermission(
+          plugin.pluginId,
+          pluginRunOnStartupPermission,
+          true,
+        );
+        final lazy = PluginLazyActivationService.instance;
+        lazy.syncPlugin(
+          plugin.pluginId,
+          broadcastTopics: const {'notes.changed'},
+          scheduleStartup: false,
+        );
+        addTearDown(() => lazy.removePlugin(plugin.pluginId));
+
+        bloc.testEmit(PluginSystemLoaded([plugin]));
+        await pumpHost(tester);
+        expect(initializeCalls, 0);
+
+        lazy.onBroadcast(
+          'notes.changed',
+          const {},
+          hasUsableInstance: (_) => false,
+        );
+        await tester.pumpAndSettle();
+
+        // initializeCalls==1 מוכיח שהמסלול העצל באמת הגיע לאתחול הסביבה —
+        // בלעדיו הבדיקות ה"שליליות" בקבוצה היו עוברות סתם כי הקוד נתקע.
+        expect(initializeCalls, 1);
+        expect(find.byType(InAppWebView), findsNothing);
+      },
+    );
+
+    testWidgets('WebView2 Runtime חסר — הערה עצלה נכשלת בלי לאתחל', (
+      tester,
+    ) async {
+      WebViewEnvironmentHolder.debugOverrideRuntimeAvailable(false);
       final plugin = _plugin(
         permissions: const [pluginRunOnStartupPermission],
+        startup: const PluginStartupContributions(
+          activationEvents: ['notes.changed'],
+        ),
       );
       await PluginRegistryRepository().setPermission(
         plugin.pluginId,
         pluginRunOnStartupPermission,
         true,
       );
+      final lazy = PluginLazyActivationService.instance;
+      lazy.syncPlugin(
+        plugin.pluginId,
+        broadcastTopics: const {'notes.changed'},
+        scheduleStartup: false,
+      );
+      addTearDown(() => lazy.removePlugin(plugin.pluginId));
 
       bloc.testEmit(PluginSystemLoaded([plugin]));
       await pumpHost(tester);
+      lazy.onBroadcast(
+        'notes.changed',
+        const {},
+        hasUsableInstance: (_) => false,
+      );
+      await tester.pumpAndSettle();
 
-      // initializeCalls==1 מוכיח שהמסלול באמת חצה את קריאת ההרשאה מה-DB —
-      // בלעדיו הבדיקות ה"שליליות" בקבוצה היו עוברות סתם כי הקוד נתקע.
-      expect(initializeCalls, 1);
+      expect(initializeCalls, 0);
       expect(find.byType(InAppWebView), findsNothing);
     });
   });

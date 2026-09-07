@@ -197,11 +197,46 @@ void main() {
     });
   });
 
+  group('network.fetch הוסר', () {
+    test('הקריאה נדחית ב-error.unknown_method ואינה מגיעה לאדפטר', () async {
+      final adapter = _FakeAdapter();
+      final handler = PluginBridgeHandler(
+        _buildInstalledPlugin(permissions: const ['network.access']),
+        adapter: adapter,
+        registry: _StubRegistry(true),
+      );
+
+      final response =
+          await handler.handleRpcForTesting([
+                {
+                  'method': 'network.fetch',
+                  'payload': const {'url': 'https://example.com'},
+                },
+              ])
+              as Map;
+
+      expect(response['success'], isFalse);
+      expect(response['error']['code'], 'error.unknown_method');
+      expect(adapter.executeCalls, 0);
+    });
+
+    test('אינה מוכרת לוולידטור ואינה בטבלת ההרשאות', () {
+      expect(
+        PluginExtendedValidator.knownApiMethods,
+        isNot(contains('network.fetch')),
+      );
+      expect(
+        PluginBridgeHandler.methodPermissions.containsKey('network.fetch'),
+        isFalse,
+      );
+      expect(PluginBridgeHandler.hasOwnTimeout('network.fetch'), isFalse);
+    });
+  });
+
   group('PluginBridgeHandler.hasOwnTimeout', () {
     test('פעולות עם timeout פנימי מוחרגות מ-timeout ברירת המחדל', () {
       // פעולות I/O ארוכות שנחתכו על קבצים גדולים ע"י ה-30 שניות.
       expect(PluginBridgeHandler.hasOwnTimeout('search.query'), isTrue);
-      expect(PluginBridgeHandler.hasOwnTimeout('network.fetch'), isTrue);
       expect(PluginBridgeHandler.hasOwnTimeout('network.fetchStream'), isTrue);
       expect(PluginBridgeHandler.hasOwnTimeout('network.download'), isTrue);
       expect(PluginBridgeHandler.hasOwnTimeout('fs.extractZip'), isTrue);
@@ -961,7 +996,6 @@ void main() {
     /// ולכן נאכפת באדפטר; מפורש ולא `startsWith`, כדי ש-network חדש יחייב
     /// החלטה מודעת.
     const enforcedInAdapter = {
-      'network.fetch',
       'network.fetchStream',
       'network.download',
     };

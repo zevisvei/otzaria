@@ -332,7 +332,6 @@ Otzaria.on('plugin.suspended', stop);   // עצירת timers / polling / WebSock
 | Method | הרשאה | פרמטרים | החזרה |
 |--------|-------|----------|-------|
 | `network.fetchStream` | `network.access` או `network.localhost` | `{ url, method?, headers?, body?, timeoutMs? }` | `AsyncIterable` של metadata ומקטעי UTF-8 |
-| `network.fetch` | כנ״ל | אותם פרמטרים | תגובה מלאה; מיושן ומוסר ב-0.9.98 |
 | `network.download` | כנ״ל | `{ url, filename?, destPath?, resume? }` | נתיב הקובץ שנשמר |
 
 ### search.*
@@ -606,7 +605,7 @@ const { data: keys } = await Otzaria.call('storage.list');
 | `tools.read` | כלי העזר המובנים — גימטריה ומילוני ראשי תיבות/ארמית (`tools.*`) |
 | `notifications.send` | הצגת הודעות בתוך האפליקציה (UiSnack) |
 | `notifications.system` | התראות מערכת הפעלה (Native notifications) |
-| `app.run_on_startup` | **הרשאה רגישה** — הפעלת WebView ברקע לפי אירוע שהוצהר ב-`contributes.startup`. ברירת מחדל: **כבויה**. בתוסף ישן ללא `contributes.startup`, מפעילה זמנית בעליית אוצריא עד 0.9.97. |
+| `app.run_on_startup` | **הרשאה רגישה** — הפעלת WebView ברקע לפי אירוע שהוצהר ב-`contributes.startup`. ברירת מחדל: **כבויה**. בלי `contributes.startup` אין טריגר, ולכן ההרשאה לבדה אינה מפעילה דבר. |
 | `app.background_keep_alive` | **הרשאה רגישה מאוד** — מניעת כיבוי אוטומטי של WebView רקע עצל. דורשת `startup.keepAlive: true`; כבויה כברירת מחדל ומוצגת באדום. |
 | `app.startup_contributions` | הזרקת פקדים ונתונים סטטיים מהמניפסט בלי להפעיל את התוסף. ברירת מחדל: **מופעלת**. |
 | `app.shortcuts` | רישום קיצורי מקלדת לתוסף (במניפסט `contributes.startup.shortcuts` או בזמן ריצה `app.registerShortcut`) — הפעלת פקודות שלו או פעולות תפריט הלחיצה הימנית. הקיצורים נשלטים במסך הגדרות קיצורי המקשים. |
@@ -716,12 +715,6 @@ Otzaria.on('plugin.boot', async (payload) => {
 | אין פעילות במשך כ-3 דקות | המופע נסגר, אלא אם אושרה הרשאת keep-alive |
 | התוסף מוסר | שני ה-instances נסגרים |
 
-### תאימות זמנית לתוספים ישנים
-
-בגרסאות 0.9.96–0.9.97, תוסף שמבקש `app.run_on_startup` אך אינו מצהיר על
-`contributes.startup` עדיין נטען בעליית אוצריא ונשאר פעיל לאורך הסשן. המסלול
-הישן יוסר ב-0.9.98; תוסף שלא יעבור להצהרות דקלרטיביות לא יופעל עוד ברקע.
-
 ---
 
 ## אבטחה ומגבלות
@@ -751,9 +744,10 @@ Otzaria.on('plugin.boot', async (payload) => {
 ### Timeout
 - כברירת מחדל, קריאת `Otzaria.call()` נחתכת אחרי **30 שניות** ומחזירה
   `error.timeout`.
-- **שישה מסלולים מוחרגים** ומנהלים חסם זמן משלהם — הם עשויים להמתין ללא
-  הגבלה מצד ה-RPC: `search.query`,‏ `network.fetch`,‏ `network.fetchStream`,‏
-  `network.download`,‏ `fs.extractZip` ו-`feedback.report`.
+- **תשעה מסלולים מוחרגים** ומנהלים חסם זמן משלהם — הם עשויים להמתין ללא
+  הגבלה מצד ה-RPC: `search.query`,‏ `network.fetchStream`,‏
+  `network.download`,‏ `fs.extractZip`,‏ `library.refreshUserBooks`,‏
+  `fs.commitUserFileWrite`,‏ `ui.print`,‏ `ui.exportPdf` ו-`feedback.report`.
 - **אל תעטפו אותם ב-timeout עצמי של 30 שניות.** `feedback.report` וכל פעולה
   שממתינה לדיאלוג ממתינות למשתמש; ביטול מצד התוסף יקטע פעולה שהמשתמש
   באמצע אישורה, ובמקרה של דיווח — אחרי שכבר נשלח.

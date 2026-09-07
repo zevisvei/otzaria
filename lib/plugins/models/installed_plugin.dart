@@ -28,7 +28,7 @@ class InstalledPlugin {
   /// שונה מ-[requiresNetwork] שמשקף את ההצהרה במניפסט בלבד.
   final bool networkAccessGranted;
 
-  /// האם הרשאת טעינה בעלייה (`app.run_on_startup`) הוענקה בפועל.
+  /// האם הרשאת הריצה ברקע (`app.run_on_startup`) הוענקה בפועל.
   final bool runOnStartupGranted;
   final PluginManifest manifest;
   final DateTime installedAt;

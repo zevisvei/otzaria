@@ -43,7 +43,7 @@ import 'plugin_network_allowlist.g.dart';
 /// דומייני ה-CDN שאליהם GitHub מפנה (redirect) בהורדת asset של release.
 ///
 /// אינם ברשימת ההיתר הגלובלית בכוונה — אסור לאפשר אליהם גישה *ישירה*
-/// (`network.fetch`/`network.download`), אלא רק כיעד של redirect שמקורו
+/// (`network.fetchStream`/`network.download`), אלא רק כיעד של redirect שמקורו
 /// ב-URL מורשה של GitHub Releases. ראו [isGithubReleaseRedirectAllowed].
 const Set<String> _githubReleaseCdnHosts = <String>{
   'objects.githubusercontent.com',

@@ -15,14 +15,8 @@ import 'package:otzaria/plugins/services/plugin_webview_failure_log.dart';
 /// הגדרת נתיב מפורש תחת APPDATA פותרת זאת.
 class WebViewEnvironmentHolder {
   static WebViewEnvironment? _environment;
-  // Future of an init that is currently in flight. Used to coalesce
-  // concurrent callers so they wait for the same WebView2 environment
-  // creation instead of each starting their own. Without this, the
-  // pre-warm path in main.dart and a user-triggered plugin tab open
-  // can race past the `_environment != null` guard while creation is
-  // still pending, and end up spawning two Edge process trees with
-  // only the second written into [_environment] — the first becomes
-  // unreachable garbage that keeps running until process exit.
+  // Coalesces concurrent init calls (background host vs. plugin tab): two
+  // callers racing past the null guard would spawn two Edge process trees.
   static Future<void>? _initializeFuture;
   static const MethodChannel _nativeShutdownChannel = MethodChannel(
     'com.pichillilorenzo/flutter_inappwebview_manager',

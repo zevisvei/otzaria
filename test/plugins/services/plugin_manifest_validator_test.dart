@@ -443,7 +443,7 @@ void main() {
 
     test('קריאת API עם הרשאה ידועה מקבלת רמז לשם ההרשאה', () async {
       final errors = await PluginManifestValidator.collectManifestErrors(
-        manifest: _manifest(const ['network.fetch']),
+        manifest: _manifest(const ['network.fetchStream']),
         directoryPath: '/',
         skipAppVersionValidation: true,
         skipFileValidation: true,

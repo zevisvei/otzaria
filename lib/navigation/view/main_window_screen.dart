@@ -63,7 +63,8 @@ import 'package:otzaria/update/my_update_widget.dart';
 import 'package:otzaria/tools/calendar/utils/calendar_cubit.dart';
 import 'package:otzaria/widgets/dialogs/ad_popup_dialog.dart';
 import 'package:otzaria/settings/services/safer_mode_guard.dart';
-import 'package:otzaria/main.dart' show appWindowListener, presentMainWindow;
+import 'package:otzaria/main.dart'
+    show appWindowListener, presentMainWindow, startupRecoveryVerified;
 import 'package:otzaria/core/splash_screen.dart' show SplashIcon;
 import 'package:otzaria/navigation/view/custom_title_bar.dart';
 import 'package:otzaria/navigation/view/reading_tabs_side_panel.dart';
@@ -869,6 +870,13 @@ class MainWindowScreenState extends State<MainWindowScreen>
   }
 
   void _tryStartDeferredStartupWork() {
+    // סנכרון הרקע ועדכון הספרייה כותבים ל-seforim.db — ממתינים לאימות ה-DB
+    // שנדחה מהעלייה (ראה startupRecoveryVerified).
+    unawaited(startupRecoveryVerified.then((_) => _startDeferredStartupWork()));
+  }
+
+  void _startDeferredStartupWork() {
+    if (!mounted) return;
     tryStartDeferredStartupWork(
       gate: _startupWorkGate,
       startBackgroundSync: _initializeBackgroundSync,
@@ -1269,6 +1277,28 @@ class MainWindowScreenState extends State<MainWindowScreen>
         bloc.add(
           InstallPluginRequested(state.archivePath, forceOverwrite: true),
         );
+      } else {
+        bloc.add(LoadPlugins());
+      }
+    } else if (state is PluginSystemDuplicateNameDetected) {
+      final versions = state.duplicates.map((p) => p.version).join(', ');
+      final value = await showWarningDialog(
+        context: context,
+        title: 'נמצא תוסף ישן באותו שם',
+        content: state.duplicates.length == 1
+            ? 'מותקן אצלך תוסף נוסף בשם "${state.pluginName}" (גרסה $versions) '
+                  'שאינו קשור לגרסה ${state.installedVersion} שהותקנה כעת.'
+            : 'מותקנים אצלך ${state.duplicates.length} תוספים נוספים בשם '
+                  '"${state.pluginName}" (גרסאות $versions) שאינם קשורים '
+                  'לגרסה ${state.installedVersion} שהותקנה כעת.',
+        subtitle: 'האם להסיר את הישן? כך יישאר תוסף אחד בלבד בשם זה.',
+        cancelText: 'השאר',
+        confirmText: 'הסר את הישן',
+      );
+      if (value == true) {
+        for (final p in state.duplicates) {
+          bloc.add(UninstallPluginRequested(p.pluginId));
+        }
       } else {
         bloc.add(LoadPlugins());
       }
@@ -3079,7 +3109,8 @@ class MainWindowScreenState extends State<MainWindowScreen>
             listenWhen: (_, current) =>
                 current is PluginSystemInstallRequiresPermissions ||
                 current is PluginSystemDevInstallRequiresPermissions ||
-                current is PluginSystemOverwriteRequired,
+                current is PluginSystemOverwriteRequired ||
+                current is PluginSystemDuplicateNameDetected,
             listener: (context, state) =>
                 _pluginInstallDialogQueue.enqueue(state),
           ),

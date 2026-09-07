@@ -4,24 +4,6 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:otzaria/core/http_client_registry.dart';
 
-/// תוצאת קריאת `network.fetch`.
-class PluginNetworkFetchResult {
-  /// קוד הסטטוס של התשובה.
-  final int status;
-
-  /// האם הסטטוס בטווח 2xx.
-  final bool ok;
-
-  /// גוף התשובה כטקסט.
-  final String body;
-
-  const PluginNetworkFetchResult({
-    required this.status,
-    required this.ok,
-    required this.body,
-  });
-}
-
 /// תגובת HTTP פתוחה עבור `network.fetchStream`.
 class PluginNetworkFetchStreamResponse {
   final int status;
@@ -39,7 +21,7 @@ class PluginNetworkFetchStreamResponse {
   });
 }
 
-/// שירות לביצוע בקשות HTTP עבור `network.fetch` ו-`network.fetchStream`.
+/// שירות לביצוע בקשות HTTP עבור `network.fetchStream`.
 ///
 /// הבקשה רצה בצד אוצריא (Flutter) ולא ב-WebView, ולכן **אינה כפופה ל-CORS**.
 /// זהו הנתיב שתוספים צריכים להשתמש בו לקריאות ל-APIs חיצוניים (במיוחד `POST`),
@@ -65,54 +47,8 @@ class PluginNetworkFetchService {
     _client.close();
   }
 
-  /// מבצעת בקשת HTTP אל [uri] ומחזירה את התשובה כטקסט.
-  ///
-  /// אינה עוקבת אחרי redirects (יעד redirect יוחזר כסטטוס 3xx). ברירת המחדל
-  /// של כותרת `Accept` היא `*/*` — התוסף יכול לדרוס אותה (וכל כותרת אחרת)
-  /// דרך [headers]. [body] נשלח כ-UTF-8 אם סופק.
-  Future<PluginNetworkFetchResult> fetch(
-    Uri uri, {
-    String method = 'GET',
-    Map<String, String>? headers,
-    String? body,
-    Duration timeout = defaultTimeout,
-  }) {
-    return _fetch(
-      uri,
-      method: method,
-      headers: headers,
-      body: body,
-    ).timeout(timeout);
-  }
-
-  Future<PluginNetworkFetchResult> _fetch(
-    Uri uri, {
-    required String method,
-    Map<String, String>? headers,
-    String? body,
-  }) async {
-    final request = http.Request(method, uri)..followRedirects = false;
-    // ברירת מחדל כללית; לא קובעים application/json כדי לא לשבור content
-    // negotiation. headers מפורשים מהתוסף דורסים זאת.
-    request.headers['accept'] = '*/*';
-    if (headers != null && headers.isNotEmpty) {
-      request.headers.addAll(headers);
-    }
-    if (body != null && body.isNotEmpty) {
-      request.body = body;
-    }
-
-    final response = await _client.send(request);
-    final responseBody = await response.stream.bytesToString();
-    final status = response.statusCode;
-    return PluginNetworkFetchResult(
-      status: status,
-      ok: status >= 200 && status < 300,
-      body: responseBody,
-    );
-  }
-
-  /// פותחת בקשת HTTP ומחזירה את גוף התשובה כזרם UTF-8.
+  /// פותחת בקשת HTTP ומחזירה את גוף התשובה כזרם UTF-8. אינה עוקבת אחרי
+  /// redirects; `Accept: */*` כברירת מחדל, וניתן לדרוס דרך [headers].
   ///
   /// השלמת [abortTrigger] מבטלת גם המתנה לכותרות וגם גוף שנמצא באמצע קריאה.
   Future<PluginNetworkFetchStreamResponse> fetchStream(

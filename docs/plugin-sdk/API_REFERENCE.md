@@ -156,7 +156,6 @@ if (response.success) {
 | `library.getLinkTargetsSummary` | 0.9.97 |
 | `library.getLinkContent` | 0.9.97 |
 | `library.refreshUserBooks` | 0.9.97 |
-| `network.fetch` | 0.9.93 |
 | `network.fetchStream` | 0.9.97 |
 | `network.download` | 0.9.93 |
 | `search.fullText` | 0.9.89 |
@@ -1105,9 +1104,24 @@ const { data } = await Otzaria.call('library.getLinkContent', {
 **הרשאה:** `network.access` (או `network.localhost` ליעד מקומי) · **מגרסה:** 0.9.97
 
 מבצעת בקשת HTTP בצד אוצריא ומחזירה `AsyncIterable` מיד עם קבלת כותרות
-התשובה. הפרמטרים זהים ל-`network.fetch`: `url`, `method`, `headers`, `body`
-ו-`timeoutMs`. חסם הזמן חל על הבקשה כולה, כולל קריאת הגוף; ברירת המחדל היא
+התשובה (ללא מעקב אחר redirects). פרמטרים: `url` (חובה), `method`
+(ברירת מחדל `GET`; מומר לאותיות גדולות וחייב להיות אותיות בלבד), `headers`
+(אובייקט מפתח→מחרוזת, אופציונלי; ערך שאינו מחרוזת מומר ב-`toString`),
+`body` (מחרוזת, אופציונלי; מחרוזת ריקה אינה נשלחת) ו-`timeoutMs` (מספר שלם
+חיובי). חסם הזמן חל על הבקשה כולה, כולל קריאת הגוף; ברירת המחדל היא
 30,000 והמקסימום 120,000 מילישניות.
+
+שגיאות אפשריות: `error.permission_denied` (אין הרשאת network.access),
+`error.forbidden` (URL לא ברשימת ההיתר), `error.invalid_params` (URL
+חסר/לא תקין, `method` לא חוקי, `body` שאינו מחרוזת, `timeoutMs` שאינו
+שלם חיובי או מעל התקרה), `error.timeout` (חסם הזמן פקע). הפרמטרים נבדקים
+לפני שליחת הבקשה.
+
+**חשוב — מתי להשתמש בזה במקום `fetch()` רגיל:** קריאת `fetch()` ישירה מתוך
+ה-WebView של התוסף כפופה ל-CORS (ה-origin הוא `null` כי הדף נטען מ-`file://`).
+שרת שלא מחזיר `Access-Control-Allow-Origin` יחסום את הבקשה. `network.fetchStream`
+רץ בצד אוצריא (Flutter) ואינו כפוף ל-CORS — לכן לקריאות ל-APIs חיצוניים
+(במיוחד `POST`) יש להשתמש בו ולא ב-`fetch()` ישיר.
 
 הפריט הראשון הוא תמיד `{ type: "response", sequence, status, ok, headers }`.
 אחריו מתקבלים פריטי `{ type: "data", sequence, body }`. כל `body` הוא מקטע
@@ -1138,44 +1152,6 @@ for await (const chunk of chunks) {
   }
 }
 if (pending.trim()) consumeResult(JSON.parse(pending));
-```
-
-### `network.fetch`
-**הרשאה:** `network.access` (או `network.localhost` ליעד מקומי — ראו [שירותים מקומיים](#שירותים-מקומיים-localhost--הרשאת-networklocalhost))
-
-> **מיושן — מוסר ב-0.9.98:** השתמשו ב-`network.fetchStream`. ה-API הישן
-> ממתין לכל גוף התשובה ומחזיר אותו כמחרוזת אחת.
-
-שליפת תוכן מ-URL מותר (ללא מעקב אחר redirects). מחזירה את גוף התשובה כטקסט.
-
-**חשוב — מתי להשתמש בזה במקום `fetch()` רגיל:** קריאת `fetch()` ישירה מתוך
-ה-WebView של התוסף כפופה ל-CORS (ה-origin הוא `null` כי הדף נטען מ-`file://`).
-שרת שלא מחזיר `Access-Control-Allow-Origin` יחסום את הבקשה. `network.fetch`
-רץ בצד אוצריא (Flutter) ואינו כפוף ל-CORS — לכן לקריאות ל-APIs חיצוניים
-(במיוחד `POST`) יש להשתמש בו ולא ב-`fetch()` ישיר.
-
-פרמטרים: `url` (חובה), `method` (ברירת מחדל `GET`), `headers` (אובייקט,
-אופציונלי), `body` (מחרוזת, אופציונלי), `timeoutMs` (מספר שלם חיובי;
-ברירת מחדל 30,000 ומקסימום 120,000 מילישניות).
-
-```javascript
-// GET פשוט
-const { data } = await Otzaria.call('network.fetch', {
-  url: 'https://api.github.com/repos/Owner/Repo/releases/latest'
-});
-// { status: 200, ok: true, body: "..." }
-
-// POST עם גוף JSON (למשל קריאה ל-API חיצוני)
-const res = await Otzaria.call('network.fetch', {
-  url: 'https://api.example.com/endpoint',
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json;charset=UTF-8' },
-  body: JSON.stringify({ key: 'value' }),
-  timeoutMs: 120000
-});
-if (res.success && res.data.ok) {
-  const parsed = JSON.parse(res.data.body);
-}
 ```
 
 ### `network.download`
@@ -2106,9 +2082,8 @@ Otzaria.on('plugin.boot', async (payload) => {
 ```
 
 **הערות:**
-- חל **רק על מופע רקע שהוער עצל**. קריאה מדף התוסף הנראה, או ממופע רקע
-  של המסלול הישן (טעינה בעלייה), היא no-op בטוח שמחזיר `false` — דף
-  התוסף ותוספים אחרים לעולם אינם מושפעים.
+- חל **רק על מופע רקע שהוער עצל**. קריאה מדף התוסף הנראה היא no-op בטוח
+  שמחזיר `false` — דף התוסף ותוספים אחרים לעולם אינם מושפעים.
 - אם בינתיים החלה עבודה חדשה (RPC פתוח או אירוע ממתין) — הכיבוי נדחה
   לשעון הרגיל במקום לקטוע אותה.
 - אין צורך לקרוא לזה אחרי טיפול באירוע רגיל — שעון חוסר-הפעילות מטפל בזה;
@@ -4488,7 +4463,6 @@ Host — יצרפו את מהדורות הספק לספר הפתוח, אחרי �
 
 - אל תסתמכו על `setTimeout`/`setInterval` ארוכים במופע הרקע — לתזמון השתמשו ב-`notifications.scheduleSystem`, ולמעקב מתמשך ב-`activationEvents`.
 - שמרו state שצריך לשרוד ב-`storage.set` (או ב-`localStorage`, שנשמר בפרופיל) — משתני JS בזיכרון אובדים בכיבוי.
-- מופעי `app.run_on_startup` במסלול הישן (טעינה בעלייה) אינם מכובים — רק מופעים שהוערו עצל.
 
 ### תקרת מופעי רקע בו-זמניים
 
@@ -4622,31 +4596,18 @@ API — מפונה. הפינוי שקוף באותו אופן ככיבוי אח�
 
 ---
 
-## ריצת רקע (app.run\_on\_startup) — מיושן
+## ריצת רקע (app.run\_on\_startup)
 
-> ⚠️ **מיושן — מוסר ב-0.9.98:** מסלול הטעינה המיידית (WebView מלא שקם בעליית אוצריא לכל תוסף רקע) עובד בפעם האחרונה בגרסה 0.9.97. **החל מ-0.9.98 תוסף שלא עבר ל-`contributes.startup` פשוט לא ירוץ בעלייה** — בלי שגיאה, ההרשאה תישאר אך לא יקום עבורה מנוע.
-
-### מדריך מעבר למפתחי תוספים (חובה עד 0.9.98)
-
-1. **הוסיפו למניפסט** `contributes.startup` ואת ההרשאה `app.startup_contributions` (לצד `app.run_on_startup` הקיימת — היא נשארת, ומשמעותה מעתה "מותר לרוץ ברקע בלי פתיחה").
-2. **רישומים סטטיים** (`reader.addToolbarItem` / `reader.addContextMenuItem` שרצים ב-`plugin.boot` של הרקע) — העבירו את אותו JSON בדיוק אל `startup.toolbarItems` / `startup.contextMenuItems` ומחקו את הקריאות מקובץ הרקע. רישומים דינמיים בדף הנראה ממשיכים לעבוד כרגיל.
-3. **נתונים קבועים** (`publishedData.upsert` בעלייה) — העבירו אל `startup.publishedData`.
-4. **קוד שחייב לרוץ בעלייה** (בדיקת עדכונים וכד') — הצהירו `activationEvents: ["app.startup"]`; קובץ הרקע שלכם ייטען כמה שניות אחרי העלייה ויקבל `plugin.boot` כרגיל, כך שקוד קיים שמסתנן לפי `runMode === 'background'` עובד ללא שינוי.
-5. **האזנה מתמשכת לאירועים** — הצהירו את הנושאים ב-`activationEvents`; המופע יוער כשאירוע באמת קורה במקום לחיות כל הסשן.
-6. **עדכנו `minAppVersion` ל-0.9.96** ומעלה — הסעיף אינו מוכר בגרסאות ישנות יותר.
-7. שימו לב לכיבוי האוטומטי אחרי חוסר פעילות (סעיף קודם) — בלי טיימרים ארוכים, state ששורד ב-`storage`.
-
-תוסף שהצהיר `contributes.startup` יוצא ממסלול הטעינה המיידית כבר ב-0.9.96 — אין מצב ביניים של ריצה כפולה.
-
-התיעוד שלהלן מתאר את המסלול הישן, לתחזוקת תוספים שטרם עברו. יש להסירו יחד עם המימוש הישן ב-0.9.98.
-
-הרשאה `app.run_on_startup` מאפשרת לתוסף להיטען ולרוץ ברקע **מיד עם עליית אוצריא**, לפני שהמשתמש נכנס למסך "כלים".
+ההרשאה `app.run_on_startup` מתירה לאוצריא להריץ את מנוע התוסף ברקע בלי שהמשתמש פתח את דף התוסף. המנוע קם **רק לפי דרישה** — לחיצה על תרומה דקלרטיבית, נושא מתוך `activationEvents`, או הטריגר `app.startup`; ראו §הפעלה עצלה. ללא `contributes.startup` אין טריגר, ולכן ההרשאה לבדה אינה מרימה מנוע.
 
 ### הצהרה במניפסט
 
 ```json
 {
-  "permissions": ["app.run_on_startup", "notifications.send"]
+  "permissions": ["app.run_on_startup", "notifications.send"],
+  "contributes": {
+    "startup": { "activationEvents": ["app.startup"] }
+  }
 }
 ```
 
@@ -4654,14 +4615,12 @@ API — מפונה. הפינוי שקוף באותו אופן ככיבוי אח�
 
 ```javascript
 Otzaria.on('plugin.boot', async (payload) => {
-  // payload.app.runMode === 'background'  → רץ ברקע (עם app.run_on_startup)
+  // payload.app.runMode === 'background'  → מופע רקע שהוער לפי דרישה
   // payload.app.runMode === 'foreground' → רץ בלשונית הנראית
 
-  if (payload.app.runMode === 'background'
-      && payload.permissions.includes('app.run_on_startup')) {
-    // קוד שירוץ פעם אחת בעת עליית האפליקציה
+  if (payload.app.runMode === 'background') {
     await Otzaria.call('notifications.showInApp', {
-      message: 'התוסף נטען בהצלחה עם עליית אוצריא',
+      message: 'מופע הרקע של התוסף נטען בהצלחה',
       type: 'success'
     });
   }
@@ -4776,7 +4735,7 @@ Otzaria.on('plugin.boot', async (payload) => {
 - ההרשאה הנדרשת היא **`network.localhost`** (לא `network.access`). השתיים נפרדות: `network.localhost` אינה מתירה גישה לאינטרנט, ו-`network.access` אינה מתירה גישה ל-localhost.
 - היעד חייב להופיע ב-`network.allowlist` של התוסף, אבל **אין צורך ב-PR לאוצריא** — localhost אינו נכלל ב-allowlist הגלובלי.
 - הצהרת host חשוף (`"127.0.0.1"` / `"localhost"`) מתירה כל פורט על אותו host; הצהרת URL מלא (`"http://127.0.0.1:11434"`) נועלת לפורט שהוצהר.
-- כמו כל גישת רשת — חובה גם `network.enabled: true` ב-manifest. הקריאות חייבות לעבור דרך `network.fetch` (לא `fetch()` ישיר מה-WebView, שנחסם ב-CORS מול שרת מקומי שדוחה `Origin: null`).
+- כמו כל גישת רשת — חובה גם `network.enabled: true` ב-manifest. הקריאות חייבות לעבור דרך `network.fetchStream` (לא `fetch()` ישיר מה-WebView, שנחסם ב-CORS מול שרת מקומי שדוחה `Origin: null`).
 
 ```json
 "permissions": ["network.localhost"],

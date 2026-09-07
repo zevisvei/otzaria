@@ -6,11 +6,14 @@ import 'package:seforim_library_updater/seforim_library_updater.dart';
 
 /// בדיקת ההתאוששות מעדכון ספרייה שנקטע, בעליית התוכנה.
 ///
+/// [run] משחזר גיבוי אם יש (rename מיידי) וחייב להסתיים לפני פתיחת ה-DB.
 /// כשנמצא סימון עדכון ללא גיבוי (מסלול דלתא), נדרש `quick_check` שקורא את
-/// **כל** קובץ ה-DB — דקה ויותר על ספרייה מלאה. תוצאת הבדיקה לסימון מסוים
-/// נשמרת בהעדפות, כי יש שני מצבים שבהם הסימון שורד את הבדיקה: מחיקתו נכשלת
-/// (ProgramData ללא הרשאת כתיבה למשתמש רגיל), או שה-DB נמצא פגום. בלי הזיכרון
-/// הזה כל עלייה משלמת סריקה מלאה מחדש (issue #989).
+/// **כל** קובץ ה-DB — שתי דקות ויותר על ספרייה מלאה (issue #1192). הוא אינו
+/// נדרש לפתיחה: apply הדלתא רץ ב-transaction יחיד ו-SQLite מגלגל אותו אחורה
+/// לבד, ולכן הוא נדחה ל-[verifyPending] שרץ אחרי חשיפת החלון.
+/// תוצאת הבדיקה לסימון מסוים נשמרת בהעדפות, כי יש שני מצבים שבהם הסימון
+/// שורד אותה: מחיקתו נכשלת (ProgramData ללא הרשאת כתיבה), או שה-DB פגום.
+/// בלי הזיכרון הזה כל עלייה משלמת סריקה מלאה מחדש (issue #989).
 class StartupRecoveryCheck {
   static const String prefKey = 'library-update-marker-check-result';
 
@@ -36,6 +39,11 @@ class StartupRecoveryCheck {
     );
   }
 
+  Future<void> Function()? _pendingVerification;
+
+  /// האם [run] השאיר אימות `quick_check` ל-[verifyPending].
+  bool get hasPendingVerification => _pendingVerification != null;
+
   Future<void> run(String dbPath) async {
     try {
       final result = await recovery.recoverIfNeeded(dbPath);
@@ -43,12 +51,25 @@ class StartupRecoveryCheck {
         case RecoveryAction.restored:
           debugPrint('📦 ${result.detail}');
         case RecoveryAction.blockedMissingBackup:
-          await _verifyAfterInterruptedDelta(dbPath, result);
+          _pendingVerification = () =>
+              _verifyAfterInterruptedDelta(dbPath, result);
         case RecoveryAction.none:
           break;
       }
     } catch (e) {
       debugPrint('library update recovery failed: $e');
+    }
+  }
+
+  /// מריץ את האימות שנדחה ב-[run], אם יש. בטוח לקריאה גם כשאין.
+  Future<void> verifyPending() async {
+    final verification = _pendingVerification;
+    _pendingVerification = null;
+    if (verification == null) return;
+    try {
+      await verification();
+    } catch (e) {
+      debugPrint('library update verification failed: $e');
     }
   }
 

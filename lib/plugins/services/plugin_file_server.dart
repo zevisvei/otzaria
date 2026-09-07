@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 /// רשומת קובץ אישי שהמשתמש אישר לתוסף, כפי שהיא מוחזקת בזיכרון השרת.
@@ -178,20 +177,11 @@ class PluginFileServer {
   /// האם [uri] היא בקשה לשרת הקבצים שמותר ל-WebView של [pluginId] לבצע.
   ///
   /// זו נקודת האכיפה היחידה של בידוד בין תוספים: רק כאן ידוע מי הפונה.
-  /// TODO: להסיר את קבלת הפורמט הישן (`/f/<token>`) בגרסה הבאה — הוא עוקף את
-  /// אכיפת ה-pluginId, ונשאר רק כדי לא לשבור URL ששמור אצל תוסף מלפני המעבר.
   static bool isUriForPlugin(Uri uri, String pluginId) {
     final segments = uri.pathSegments;
-    if (segments.isEmpty || segments[0] != 'f') return false;
-    if (segments.length == 3) return segments[1] == pluginId;
-    if (segments.length == 2) {
-      debugPrint(
-        'PluginFileServer: legacy /f/<token> URL from plugin $pluginId — '
-        'התאימות תוסר בגרסה הבאה',
-      );
-      return true;
-    }
-    return false;
+    return segments.length == 3 &&
+        segments[0] == 'f' &&
+        segments[1] == pluginId;
   }
 
   /// האם [uri] הוא נתיב ההעלאה (`/w/<token>`) של העלאה פתוחה של [pluginId].
@@ -482,27 +472,13 @@ class PluginFileServer {
         return;
       }
 
-      if (segments.isEmpty || segments[0] != 'f') {
+      // קובץ: GET/HEAD ל-/f/<pluginId>/<token>.
+      if (segments.length != 3 || segments[0] != 'f') {
         response.statusCode = HttpStatus.notFound;
         return;
       }
-      // הפורמט הישן `/f/<token>` נתמך לגרסה אחת: URL שתוסף שמר ב-storage לפני
-      // המעבר ל-`/f/<pluginId>/<token>` היה מפסיק לעבוד בשקט.
-      final String token;
-      String? expectedPluginId;
-      if (segments.length == 3) {
-        expectedPluginId = segments[1];
-        token = segments[2];
-      } else if (segments.length == 2) {
-        token = segments[1];
-        debugPrint('PluginFileServer: legacy /f/<token> request served');
-      } else {
-        response.statusCode = HttpStatus.notFound;
-        return;
-      }
-      final grant = _grants[token];
-      if (grant == null ||
-          (expectedPluginId != null && grant.pluginId != expectedPluginId)) {
+      final grant = _grants[segments[2]];
+      if (grant == null || grant.pluginId != segments[1]) {
         response.statusCode = HttpStatus.notFound;
         return;
       }

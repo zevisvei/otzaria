@@ -595,7 +595,7 @@ void main() {
         final backup = await createPluginsBackup();
 
         // אחרי הגיבוי — מוסיפים הרשאה ו-KV שאינם קיימים בגיבוי.
-        await db.setPermission(pluginId, 'network.fetch', true);
+        await db.setPermission(pluginId, 'network.access', true);
         await db.setPluginKV(pluginId, 'settings', 'lang', '"he"');
 
         await BackupService.restoreFromBackup(backup.path);
@@ -604,7 +604,7 @@ void main() {
         expect(await db.getPermission(pluginId, 'clipboard.read'), isTrue);
         expect(await db.getPluginKV(pluginId, 'settings', 'theme'), '"dark"');
         // מה שלא היה בגיבוי נמחק.
-        expect(await db.getPermission(pluginId, 'network.fetch'), isNull);
+        expect(await db.getPermission(pluginId, 'network.access'), isNull);
         expect(await db.getPluginKV(pluginId, 'settings', 'lang'), isNull);
       },
     );

@@ -192,7 +192,6 @@ const Set<String> _knownApiMethods = {
   'database.describeSource',
   'database.query',
   'database.batchQuery',
-  'network.fetch',
   'network.fetchStream',
   'network.download',
   'shortcut.create',
@@ -366,7 +365,6 @@ const Map<String, String> _methodRequiredPermission = {
   'database.describeSource': 'database.read',
   'database.query': 'database.read',
   'database.batchQuery': 'database.read',
-  'network.fetch': 'network.access',
   'network.fetchStream': 'network.access',
   'network.download': 'network.access',
   'shortcut.create': 'ui.create_shortcut',
@@ -482,7 +480,6 @@ const Map<String, String> _methodMinVersion = {
   'database.batchQuery': '0.9.89',
   // 0.9.93
   'library.getTree': '0.9.93',
-  'network.fetch': '0.9.93',
   'network.fetchStream': '0.9.97',
   'network.download': '0.9.93',
   'fs.deleteFile': '0.9.93',
