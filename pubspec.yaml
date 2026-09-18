@@ -117,12 +117,12 @@ dependencies:
   wakelock_plus: ^1.8.0
 
 dependency_overrides:
-  # TODO: להחזיר ל-pub.dev כשיתמזג וישוחרר DavBfr/dart_pdf#1969 (ערוץ פר-מופע
-  # לריבוי חלונות). עד אז הפורק Otzaria/dart_pdf, מוצמד לקומיט.
+  # TODO: להחזיר ל-pub.dev כשישוחרר DavBfr/dart_pdf#1969 (ערוץ פר-מופע
+  # לריבוי חלונות) — מוזג ב-master אך טרם פורסם. עד אז קומיט המיזוג עצמו.
   printing:
     git:
-      url: https://github.com/Otzaria/dart_pdf
-      ref: de6181ded2071eb0a9f9f8e66b99b6a557eefb34
+      url: https://github.com/DavBfr/dart_pdf
+      ref: 12c0a96ff35cf25b7081e73726e3f5bb7bd95bf1
       path: printing
   matcher: ^0.12.20
   analyzer: ^14.2.0
